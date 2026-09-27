@@ -2408,11 +2408,15 @@ def _record_video(
     yield
 
 
-def _recording_requested(config: pytest.Config) -> bool:
-    """True when this run films the journey, via the env var or ``--video``."""
+def _recording_requested(item: pytest.Item) -> bool:
+    """True when this test films the journey: env var, ``--video``, or a recording context."""
     if os.environ.get(_RECORD_DIR_ENV):
         return True
-    return config.getoption("--video", default="off") not in (None, "off")
+    if item.config.getoption("--video", default="off") not in (None, "off"):
+        return True
+    # Authored reproductions sometimes hard-code ``record_video_dir`` themselves.
+    context_args = getattr(item, "funcargs", {}).get("browser_context_args") or {}
+    return bool(context_args.get("record_video_dir"))
 
 
 def _stop_recorded_context(item: pytest.Item) -> None:
@@ -2434,7 +2438,7 @@ def pytest_runtest_makereport(
 
     The ``context`` behind ``page`` otherwise outlives the session fixtures' teardown."""
     yield
-    if call.when == "call" and _recording_requested(item.config):
+    if call.when == "call" and _recording_requested(item):
         _stop_recorded_context(item)
 
 

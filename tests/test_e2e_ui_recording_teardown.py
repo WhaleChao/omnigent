@@ -99,6 +99,68 @@ def test_ordinary_runs_leave_the_context_to_its_own_teardown(
     pytester.runpytest_subprocess("-q", *plugins).assert_outcomes(passed=1)
 
 
+def test_record_dir_stops_the_context_before_a_dependent_fixture_cleans_up(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _configure(pytester, monkeypatch, record_dir=tmp_path / "raw")
+    pytester.makepyfile(
+        _FAKE_CONTEXT
+        + """
+
+@pytest.fixture
+def context():
+    STATE["context"] = FakeContext()
+    return STATE["context"]
+
+
+@pytest.fixture
+def search_sessions(context):
+    try:
+        yield ["file_name", "fileXname"]
+    finally:
+        # Deleting the seeded sessions must happen after the video is finalized.
+        assert context.closed is True
+
+
+def test_journey(context, search_sessions):
+    assert not context.closed"""
+    )
+
+    pytester.runpytest_subprocess("-q").assert_outcomes(passed=1)
+
+
+def test_a_context_that_records_on_its_own_is_stopped_too(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _configure(pytester, monkeypatch, record_dir=None)
+    pytester.makepyfile(
+        _FAKE_CONTEXT
+        + f"""
+
+@pytest.fixture
+def browser_context_args():
+    return {{"record_video_dir": {str(tmp_path / "raw")!r}}}
+
+
+@pytest.fixture
+def context(browser_context_args):
+    STATE["context"] = FakeContext()
+    return STATE["context"]
+
+
+@pytest.fixture
+def native_session():
+    yield "session"
+    assert STATE["context"].closed is True
+
+
+def test_journey(context, native_session):
+    assert not context.closed"""
+    )
+
+    pytester.runpytest_subprocess("-q").assert_outcomes(passed=1)
+
+
 def test_a_context_the_test_already_closed_is_left_alone(
     pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

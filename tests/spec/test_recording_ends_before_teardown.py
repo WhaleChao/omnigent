@@ -27,10 +27,26 @@ def test_web_lane_ends_the_clip_with_the_test_body() -> None:
     assert "must skip that work when `page.is_closed()`" in lanes
 
 
+def test_web_lane_names_before_clips_and_every_recording_request() -> None:
+    lanes = _normalized(_DEV / "recording-lanes.md")
+
+    assert (
+        'a `before` clip on a search palette that drops to "No results found" as the '
+        "fixture deletes the sessions it had just listed" in lanes
+    )
+    assert (
+        "`OMNIGENT_E2E_RECORD_DIR`, `--video`, or a `record_video_dir` in "
+        "`browser_context_args`" in lanes
+    )
+
+
 def test_finishing_a_clip_checks_the_last_frame_for_teardown() -> None:
     lanes = _normalized(_DEV / "recording-lanes.md")
 
     assert "Check the clip's last frame before captioning it" in lanes
+    assert "Every clip must stop on the demonstrated state its caption describes" in lanes
+    assert "the failure for a `before` clip, the healthy state for a `fixed`/`after` clip" in lanes
     assert "a final frame that shows teardown" in lanes
+    assert "a result list emptied by fixture cleanup" in lanes
     assert "means the recording outlived the test body" in lanes
     assert "Fix the stop point and re-record; do not caption around it" in lanes

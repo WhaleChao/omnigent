@@ -144,11 +144,14 @@ writes the video when the recorded context closes, and pytest tears fixtures
 down in reverse setup order: the `context` behind `page` is set up before the
 session fixtures a test lists after it, so it closes *last* — after those
 fixtures have deleted the session or stopped the runner. A clip that keeps
-rolling through teardown ends on the SPA's teardown state (the pane greyed out
-behind "Bridge closed: terminal session ended") instead of the state the test
-asserted. When recording is requested (`OMNIGENT_E2E_RECORD_DIR` or `--video`),
-the e2e_ui conftest therefore closes the pytest-playwright context as soon as
-the test body finishes, before any fixture teardown runs. A test that opens its
+rolling through teardown ends on the SPA's teardown state instead of the state
+the test asserted: an `after` clip on the pane greyed out behind "Bridge closed:
+terminal session ended", a `before` clip on a search palette that drops to "No
+results found" as the fixture deletes the sessions it had just listed. When
+recording is requested (`OMNIGENT_E2E_RECORD_DIR`, `--video`, or a
+`record_video_dir` in `browser_context_args`), the e2e_ui conftest therefore
+closes the pytest-playwright context as soon as the test body finishes, before
+any fixture teardown runs. A test that opens its
 own pages or contexts must close them itself before its body returns, for the
 same reason, and a fixture that touches `page` after `yield` must skip that
 work when `page.is_closed()`.
@@ -278,11 +281,12 @@ state, bad output, error) for a `before` recording, or the correct end state for
 are fine otherwise. Recordings are workspace artifacts exactly like the test —
 leave them uncommitted; in CI the artifact bundle collects them.
 
-Check the clip's last frame before captioning it. An `after` clip must stop on
-the healthy state its caption promises; a final frame that shows teardown — the
+Check the clip's last frame before captioning it. Every clip must stop on the
+demonstrated state its caption describes — the failure for a `before` clip, the
+healthy state for a `fixed`/`after` clip; a final frame that shows teardown — the
 pane greyed out behind "Bridge closed: terminal session ended", a deleted
-session — means the recording outlived the test body. Fix the stop point and
-re-record; do not caption around it.
+session, a result list emptied by fixture cleanup — means the recording outlived
+the test body. Fix the stop point and re-record; do not caption around it.
 
 For each recording, write a short **`caption`** in its handoff entry describing
 **the actions that clip performs** — the ordered steps a viewer watches, ending in
