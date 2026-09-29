@@ -41,10 +41,15 @@ recoverable failure; if it stalls, inspect its status and logs before retrying.
 
 Completion requires these independent proofs, not just green checks:
 
-- **Polly:** a trusted bot comment with exact `<!-- polly-review-bot -->` and
-  `<!-- polly-reviewed-sha: <full current head SHA> -->` lines. A
-  `polly-skipped-sha` marker is not a review. A fork's automatic job may pass
-  without running a review at all.
+- **Polly:** a trusted bot comment starting with exact `<!-- polly-review-bot -->`,
+  `<!-- polly-reviewed-sha: <full current head SHA> -->`, and matching
+  `polly-review-run` lines, plus an unexpired `polly-completed-<pr>-<head SHA>`
+  artifact from a completed, successful `polly-review.yml` run on the default
+  branch via `workflow_dispatch` or `issue_comment`. Marker text quoted inside
+  another bot's review cannot establish completion. Automatic `pull_request`
+  runs do not establish trusted workflow provenance; dispatch through the helper.
+  Repositories must deploy the receipt-producing Polly workflow before this gate
+  can pass. Do not fall back to bare markers on older workflow versions.
 - **OCR:** an unexpired `ocr-completed-<pr>-<full current head SHA>` artifact
   from a successful, completed `open-code-review.yml` run, executing trusted
   workflow code. OCR writes this only after complete output and successful
@@ -80,9 +85,12 @@ change against the requested outcome and the main scope rules. For each finding:
   approval is a reason to skip a necessary fix. A duplicate must link to the
   disposition of the original finding, rather than silently disappearing.
 
-Reply on the PR with each disposition and evidence. For a summary with several
-findings, enumerate **every finding** and its fix/justification, not a blanket
-"all addressed". Track one disposition per feedback `key` in `review_cycle`;
+Reply once per substantive finding with its disposition and evidence. With
+maintainer credentials, your own replies are also collected as trusted feedback:
+record them as `not_needed`, citing the original finding and your earlier reply,
+without posting another reply to that bookkeeping. Do not exclude the maintainer's
+other feedback. For a summary with several findings, enumerate **every finding**
+and its fix/justification, not a blanket "all addressed". Track one disposition per feedback `key` in `review_cycle`;
 its `reason` must enumerate those individual decisions when a document contains
 multiple findings. This receipt checks coverage of feedback documents, not the
 correctness of your reasoning; you remain responsible for every finding inside.

@@ -40,6 +40,13 @@ def gh_json(args: list[str]) -> object:
     return json.loads(result.stdout) if result.stdout.strip() else None
 
 
+def api_object(endpoint, request):
+    result = request(["api", endpoint])
+    if not isinstance(result, dict):
+        raise RuntimeError(f"Expected a JSON object from {endpoint}")
+    return result
+
+
 def pages(endpoint, request, field=None):
     result = []
     separator = "&" if "?" in endpoint else "?"
@@ -65,8 +72,8 @@ def actor(item):
     return str((item.get("user") or {}).get("login") or "").casefold()
 
 
-def ocr_summary_markers(repository, number, head, default_branch, request):
-    name = f"ocr-completed-{number}-{head}"
+def completed_review_runs(repository, number, head, default_branch, reviewer, request):
+    name = f"{reviewer}-completed-{number}-{head}"
     artifacts = pages(
         f"repos/{repository}/actions/artifacts?{urlencode({'name': name})}",
         request,
@@ -74,7 +81,7 @@ def ocr_summary_markers(repository, number, head, default_branch, request):
     )
     if not artifacts:
         return set()
-    workflow = request(["api", f"repos/{repository}/actions/workflows/{REVIEWERS['ocr']}"])
+    workflow = api_object(f"repos/{repository}/actions/workflows/{REVIEWERS[reviewer]}", request)
     markers = set()
     for artifact in artifacts:
         if artifact.get("name") != name or artifact.get("expired"):
@@ -82,8 +89,8 @@ def ocr_summary_markers(repository, number, head, default_branch, request):
         run_id = (artifact.get("workflow_run") or {}).get("id")
         if not run_id:
             continue
-        run = request(["api", f"repos/{repository}/actions/runs/{run_id}"])
-        trusted = run.get("event") == "pull_request_target" or (
+        run = api_object(f"repos/{repository}/actions/runs/{run_id}", request)
+        trusted = (reviewer == "ocr" and run.get("event") == "pull_request_target") or (
             run.get("head_branch") == default_branch
             and run.get("event") in {"issue_comment", "workflow_dispatch"}
         )
@@ -93,20 +100,22 @@ def ocr_summary_markers(repository, number, head, default_branch, request):
             and run.get("status") == "completed"
             and run.get("conclusion") == "success"
         ):
-            markers.add(f"<!-- ocr-summary-run:{run_id}-{run['run_attempt']} -->")
+            markers.add(f"{run_id}-{run['run_attempt']}")
     return markers
 
 
 def snapshot(repository: str, number: int, request=gh_json):
-    pull = request(["api", f"repos/{repository}/pulls/{number}"])
+    pull = api_object(f"repos/{repository}/pulls/{number}", request)
     if pull.get("state") != "open" or pull.get("draft"):
         raise RuntimeError("PR is closed or draft; review cycle cannot complete")
     head = pull["head"]["sha"]
-    # OCR uploads this only after publishing every finding. Read it before the
-    # feedback so a review finishing mid-snapshot cannot hide its last comments.
-    ocr_markers = ocr_summary_markers(
-        repository, number, head, pull["base"]["repo"]["default_branch"], request
-    )
+    # Observe completed publication before collecting findings from either reviewer.
+    completed_runs = {
+        reviewer: completed_review_runs(
+            repository, number, head, pull["base"]["repo"]["default_branch"], reviewer, request
+        )
+        for reviewer in REVIEWERS
+    }
     comments = pages(f"repos/{repository}/issues/{number}/comments", request)
     reviews = pages(f"repos/{repository}/pulls/{number}/reviews", request)
     inline = pages(f"repos/{repository}/pulls/{number}/comments", request)
@@ -120,8 +129,8 @@ def snapshot(repository: str, number: int, request=gh_json):
             return False
         if login not in permissions:
             try:
-                permission = request(
-                    ["api", f"repos/{repository}/collaborators/{login}/permission"]
+                permission = api_object(
+                    f"repos/{repository}/collaborators/{login}/permission", request
                 )
             except GitHubError as exc:
                 if exc.status != 404:
@@ -165,19 +174,26 @@ def snapshot(repository: str, number: int, request=gh_json):
     completed = {
         "polly": any(
             actor(item) in REVIEW_BOTS
-            and "<!-- polly-review-bot -->" in str(item.get("body") or "").splitlines()
-            and f"<!-- polly-reviewed-sha: {head} -->" in str(item.get("body") or "").splitlines()
+            and str(item.get("body") or "").splitlines()[:2]
+            == ["<!-- polly-review-bot -->", f"<!-- polly-reviewed-sha: {head} -->"]
+            and any(
+                f"<!-- polly-review-run:{run} -->" in str(item.get("body") or "").splitlines()[:3]
+                for run in completed_runs["polly"]
+            )
             for item in comments
         ),
         "ocr": any(
             actor(item) == "github-actions[bot]"
-            and "<!-- ocr-summary -->" in str(item.get("body") or "").splitlines()
-            and ocr_markers.intersection(str(item.get("body") or "").splitlines())
+            and any(
+                str(item.get("body") or "").splitlines()[:2]
+                == ["<!-- ocr-summary -->", f"<!-- ocr-summary-run:{run} -->"]
+                for run in completed_runs["ocr"]
+            )
             for item in comments
         ),
     }
     # Re-read after pagination: never bind a mixed-head snapshot to a receipt.
-    current = request(["api", f"repos/{repository}/pulls/{number}"])
+    current = api_object(f"repos/{repository}/pulls/{number}", request)
     if current.get("state") != "open" or current.get("draft") or current["head"]["sha"] != head:
         raise RuntimeError("PR changed while collecting reviews; refresh the snapshot")
     result = {
@@ -239,7 +255,7 @@ def validate(state, handoff):
 
 def request_reviews(repository, number, state, request=gh_json):
     """Explicit dispatch is the supported bot equivalent of /review and /ocr."""
-    repo = request(["api", f"repos/{repository}"])
+    repo = api_object(f"repos/{repository}", request)
     for name, workflow in REVIEWERS.items():
         if not state["completed"][name]:
             request(
@@ -283,7 +299,7 @@ def main():
         subprocess.CalledProcessError,
         subprocess.TimeoutExpired,
     ) as exc:
-        print(f"Review cycle not complete: {exc}")
+        print(f"Review cycle not complete ({type(exc).__name__}): {exc}")
         return 1
     return 0
 

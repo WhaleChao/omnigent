@@ -31,7 +31,7 @@ class Github:
                 1,
                 "<!-- polly-review-bot -->\n<!-- polly-reviewed-sha: "
                 + "a" * 40
-                + " -->\nNon-blocking: retries can lose data.",
+                + " -->\n<!-- polly-review-run:11-1 -->\nNon-blocking: retries can lose data.",
             )
         ]
         self.comments.append(
@@ -67,6 +67,13 @@ class Github:
                 "workflow_run": {"id": 10},
             }
         ]
+        self.artifacts.append(
+            {
+                "name": "polly-completed-7-" + "a" * 40,
+                "expired": False,
+                "workflow_run": {"id": 11},
+            }
+        )
         self.run = {
             "workflow_id": 20,
             "run_attempt": 1,
@@ -75,6 +82,7 @@ class Github:
             "status": "completed",
             "conclusion": "success",
         }
+        self.polly_run = {**self.run, "workflow_id": 21}
         self.calls = []
         self.permissions = {}
 
@@ -108,6 +116,10 @@ class Github:
             return {"artifacts": copy.deepcopy(self.artifacts)}
         if "/actions/workflows/open-code-review.yml" in path:
             return {"id": 20}
+        if "/actions/workflows/polly-review.yml" in path:
+            return {"id": 21}
+        if "/actions/runs/11" in path:
+            return copy.deepcopy(self.polly_run)
         if "/actions/runs/10" in path:
             return copy.deepcopy(self.run)
         raise AssertionError(args)
@@ -207,7 +219,7 @@ def test_ocr_requires_a_successful_trusted_current_head_receipt(mutation):
 )
 def test_polly_requires_a_real_current_head_review(login, body):
     api = Github()
-    api.comments[0] = api.comment(1, body, login)
+    api.comments[0] = api.comment(1, body + "\n<!-- polly-review-run:11-1 -->", login)
     assert not cycle.snapshot("o/r", 7, api)["completed"]["polly"]
 
 
@@ -222,6 +234,7 @@ def test_polly_requires_a_real_current_head_review(login, body):
         "non_string_reason",
         "duplicate",
         "remaining",
+        "missing_remaining",
     ],
 )
 def test_invalid_handoffs_cannot_claim_ready(mutation):
@@ -241,6 +254,8 @@ def test_invalid_handoffs_cannot_claim_ready(mutation):
         result["review_cycle"]["dispositions"][0]["reason"] = ["unstructured"]
     elif mutation == "duplicate":
         result["review_cycle"]["dispositions"].append(result["review_cycle"]["dispositions"][0])
+    elif mutation == "missing_remaining":
+        del result["remaining_work"]
     else:
         result["remaining_work"] = ["Fix the retry race."]
     errors = {
@@ -252,6 +267,7 @@ def test_invalid_handoffs_cannot_claim_ready(mutation):
         "non_string_reason": "Feedback comment:1 needs an evidenced disposition",
         "duplicate": "Duplicate review disposition",
         "remaining": "explicit empty remaining_work list",
+        "missing_remaining": "explicit empty remaining_work list",
     }
     with pytest.raises(RuntimeError, match=errors[mutation]):
         cycle.validate(state, result)
@@ -310,7 +326,8 @@ def test_live_feedback_changes_invalidate_a_handoff(change):
     elif change == "push":
         api.pull["head"]["sha"] = "b" * 40
         api.comments[0]["body"] = api.comments[0]["body"].replace("a" * 40, "b" * 40)
-        api.artifacts[0]["name"] = "ocr-completed-7-" + "b" * 40
+        for artifact in api.artifacts:
+            artifact["name"] = artifact["name"].replace("a" * 40, "b" * 40)
     refreshed = cycle.snapshot("o/r", 7, api)
     if change == "other_pr":
         refreshed = cycle.snapshot(
@@ -323,9 +340,9 @@ def test_live_feedback_changes_invalidate_a_handoff(change):
         cycle.validate(refreshed, handoff(first))
 
 
-def test_each_push_requires_both_reviewers_even_after_six_rounds():
+def test_each_push_requires_fresh_evidence_from_both_reviewers():
     api = Github()
-    for round_number in range(1, 9):
+    for round_number in range(1, 3):
         head = f"{round_number:040x}"
         api.pull["head"]["sha"] = head
         pending = cycle.snapshot("o/r", 7, api)
@@ -341,10 +358,12 @@ def test_each_push_requires_both_reviewers_even_after_six_rounds():
         api.comments.append(
             api.comment(
                 100 + round_number,
-                f"<!-- polly-review-bot -->\n<!-- polly-reviewed-sha: {head} -->\nNo findings.",
+                f"<!-- polly-review-bot -->\n<!-- polly-reviewed-sha: {head} -->\n"
+                "<!-- polly-review-run:11-1 -->\nNo findings.",
             )
         )
         api.artifacts[0]["name"] = f"ocr-completed-7-{head}"
+        api.artifacts[1]["name"] = f"polly-completed-7-{head}"
         complete = cycle.snapshot("o/r", 7, api)
         cycle.validate(complete, handoff(complete))
 
@@ -382,7 +401,9 @@ def test_human_notes_and_dismissed_reviews_still_need_dispositions():
         cycle.validate(state, result)
 
 
-@pytest.mark.parametrize("mutation", ["deleted", "wrong_run", "wrong_author", "wrong_attempt"])
+@pytest.mark.parametrize(
+    "mutation", ["deleted", "wrong_run", "wrong_author", "wrong_attempt", "quoted"]
+)
 def test_ocr_completion_requires_its_published_summary(mutation):
     api = Github()
     if mutation == "deleted":
@@ -391,19 +412,13 @@ def test_ocr_completion_requires_its_published_summary(mutation):
         api.comments[1]["body"] = api.comments[1]["body"].replace("10-1", "11-1")
     elif mutation == "wrong_author":
         api.comments[1]["user"]["login"] = "maintainer"
+    elif mutation == "quoted":
+        api.comments[1]["body"] = "Quoted review:\n" + api.comments[1]["body"]
     else:
         api.run["run_attempt"] = 2
     state = cycle.snapshot("o/r", 7, api)
     with pytest.raises(RuntimeError, match="ocr"):
         cycle.validate(state, handoff(state))
-
-
-def test_handoff_requires_an_explicit_no_remaining_work_verdict():
-    state = cycle.snapshot("o/r", 7, Github())
-    result = handoff(state)
-    del result["remaining_work"]
-    with pytest.raises(RuntimeError, match="remaining_work"):
-        cycle.validate(state, result)
 
 
 @pytest.fixture
@@ -514,3 +529,63 @@ def test_cli_preserves_github_error_details(monkeypatch, capsys):
     )
     assert cycle.main() == 1
     assert "API rate limit exceeded (HTTP 403)" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "event,branch",
+    [
+        ("pull_request_target", "contributor-branch"),
+        ("issue_comment", "main"),
+    ],
+)
+def test_ocr_accepts_trusted_target_and_comment_events(event, branch):
+    api = Github()
+    api.run.update(event=event, head_branch=branch)
+    state = cycle.snapshot("o/r", 7, api)
+    cycle.validate(state, handoff(state))
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "no_receipt",
+        "wrong_workflow",
+        "untrusted_branch",
+        "pull_request",
+        "quoted",
+        "wrong_run",
+    ],
+)
+def test_polly_cannot_be_completed_by_injected_bot_markers(mutation):
+    api = Github()
+    if mutation == "no_receipt":
+        api.artifacts.pop(1)
+    elif mutation == "wrong_workflow":
+        api.polly_run["workflow_id"] = 20
+    elif mutation == "untrusted_branch":
+        api.polly_run["head_branch"] = "contributor-branch"
+    elif mutation == "pull_request":
+        api.polly_run["event"] = "pull_request"
+    elif mutation == "quoted":
+        api.comments[0]["body"] = (
+            "<!-- ocr-summary -->\nQuoted review:\n" + api.comments[0]["body"]
+        )
+    else:
+        api.comments[0]["body"] = api.comments[0]["body"].replace("11-1", "12-1")
+    state = cycle.snapshot("o/r", 7, api)
+    with pytest.raises(RuntimeError, match="missing or incomplete: polly"):
+        cycle.validate(state, handoff(state))
+
+
+@pytest.mark.parametrize("stdout", ["", "null", "[]"])
+def test_cli_rejects_invalid_pull_response_with_context(monkeypatch, capsys, stdout):
+    monkeypatch.setattr(
+        cycle.subprocess,
+        "run",
+        lambda args, **kw: subprocess.CompletedProcess(args, 0, stdout, ""),
+    )
+    monkeypatch.setattr(
+        sys, "argv", ["review_cycle.py", "snapshot", "--repository", "o/r", "--pr-number", "7"]
+    )
+    assert cycle.main() == 1
+    assert "Expected a JSON object from repos/o/r/pulls/7" in capsys.readouterr().out

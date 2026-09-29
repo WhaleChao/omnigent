@@ -256,7 +256,7 @@ python3 dev/resolve-agent/skills/resolve-drive-pr/review_cycle.py snapshot --rep
 ```
 
 A new head must show both reviews incomplete until that head has Polly's reviewed
-SHA comment and OCR's successful completion artifact. The `request` command
+SHA comment and both reviewers' trusted completion artifacts. The `request` command
 starts missing reviews; call it once, then poll `snapshot`. After triaging every
 returned feedback document, save the normal handoff with its `review_cycle`
 receipt and run `check --handoff <handoff.json>` using the same repository/PR
