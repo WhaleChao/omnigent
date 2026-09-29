@@ -3,12 +3,9 @@
 Run **both Polly AI Review (`/review`) and Open Code Review (`/ocr`)** on the
 PR you are driving. Neither reviewer automatically reruns on every push. Their
 slash-command handlers ignore bot comments, so Resolve uses the equivalent
-`workflow_dispatch` entry points with its App token (`actions: write`):
-
-```bash
-gh workflow run polly-review.yml --repo <target_repo> --ref <default_branch> -f pr=<pr>
-gh workflow run open-code-review.yml --repo <target_repo> --ref <default_branch> -f pr=<pr>
-```
+`workflow_dispatch` entry points with its App token (`actions: write`). Use
+`review_cycle.py request` below as the single dispatch path; it forces missing
+reviews to rerun even when skip markers or incomplete publication evidence remain.
 
 Use the target repository's default branch for workflow code, including fork
 PRs. Never run a workflow from the contributor's branch. A missing workflow,

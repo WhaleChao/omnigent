@@ -2,6 +2,9 @@
 
 import copy
 import importlib.util
+import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -34,7 +37,10 @@ class Github:
         self.comments.append(
             self.comment(
                 2,
-                "<!-- ocr-summary -->\n<!-- ocr-summary-run:10-1 -->\nReview complete.",
+                "<!-- ocr-summary -->\n<!-- ocr-summary-run:10-1 -->\n"
+                "🔍 **OpenCodeReview** found **1** issue(s) in this PR.\n"
+                "- 📋 Routed to summary by policy: 1 comment(s)\n\n---\n\n"
+                "Non-blocking: the retry still loses data.",
                 "github-actions[bot]",
             )
         )
@@ -70,6 +76,7 @@ class Github:
             "conclusion": "success",
         }
         self.calls = []
+        self.permissions = {}
 
     @staticmethod
     def comment(id, body, login="omnigent-ci[bot]"):
@@ -95,10 +102,8 @@ class Github:
             return copy.deepcopy(self.reviews)
         if "/pulls/7/comments?" in path:
             return copy.deepcopy(self.inline)
-        if "/pulls/7/commits?" in path:
-            return []
         if "/collaborators/" in path:
-            return {"permission": "write"}
+            return {"permission": self.permissions.get(path.split("/")[-2], "write")}
         if "/actions/artifacts?" in path:
             return {"artifacts": copy.deepcopy(self.artifacts)}
         if "/actions/workflows/open-code-review.yml" in path:
@@ -238,7 +243,17 @@ def test_invalid_handoffs_cannot_claim_ready(mutation):
         result["review_cycle"]["dispositions"].append(result["review_cycle"]["dispositions"][0])
     else:
         result["remaining_work"] = ["Fix the retry race."]
-    with pytest.raises(RuntimeError):
+    errors = {
+        "partial": "outcome must be fixed",
+        "missing": "Feedback review:3 needs an evidenced disposition",
+        "stale": "receipt is stale or absent",
+        "pending": "Feedback comment:1 needs an evidenced disposition",
+        "empty_reason": "Feedback comment:1 needs an evidenced disposition",
+        "non_string_reason": "Feedback comment:1 needs an evidenced disposition",
+        "duplicate": "Duplicate review disposition",
+        "remaining": "explicit empty remaining_work list",
+    }
+    with pytest.raises(RuntimeError, match=errors[mutation]):
         cycle.validate(state, result)
 
 
@@ -294,10 +309,17 @@ def test_live_feedback_changes_invalidate_a_handoff(change):
         api.comments.append(api.comment(8, "<!-- ocr-summary -->\nMissed failure."))
     elif change == "push":
         api.pull["head"]["sha"] = "b" * 40
-    else:
-        first["fingerprint"] = "receipt from a different PR"
+        api.comments[0]["body"] = api.comments[0]["body"].replace("a" * 40, "b" * 40)
+        api.artifacts[0]["name"] = "ocr-completed-7-" + "b" * 40
     refreshed = cycle.snapshot("o/r", 7, api)
-    with pytest.raises(RuntimeError):
+    if change == "other_pr":
+        refreshed = cycle.snapshot(
+            "o/other",
+            7,
+            lambda args: api([arg.replace("repos/o/other/", "repos/o/r/") for arg in args]),
+        )
+    assert all(refreshed["completed"].values())
+    with pytest.raises(RuntimeError, match="receipt is stale or absent"):
         cycle.validate(refreshed, handoff(first))
 
 
@@ -344,12 +366,14 @@ def test_human_notes_and_dismissed_reviews_still_need_dispositions():
     api.comments.append(api.comment(8, "Non-blocking: the retry still loses data.", "maintainer"))
     api.comments.append(api.comment(9, "/review", "maintainer"))
     api.comments.append(api.comment(10, "Deploy succeeded.", "github-actions[bot]"))
+    api.comments.append(api.comment(11, "Untrusted request.", "outsider"))
+    api.permissions["outsider"] = "read"
     api.reviews[0]["state"] = "DISMISSED"
     state = cycle.snapshot("o/r", 7, api)
     keys = {item["key"] for item in state["feedback"]}
     assert "comment:8" in keys
     assert "review:3" in keys
-    assert not keys & {"comment:9", "comment:10"}
+    assert not keys & {"comment:9", "comment:10", "comment:11"}
     result = handoff(state)
     result["review_cycle"]["dispositions"] = [
         item for item in result["review_cycle"]["dispositions"] if item["key"] != "comment:8"
@@ -380,3 +404,113 @@ def test_handoff_requires_an_explicit_no_remaining_work_verdict():
     del result["remaining_work"]
     with pytest.raises(RuntimeError, match="remaining_work"):
         cycle.validate(state, result)
+
+
+@pytest.fixture
+def github_cli(monkeypatch):
+    api = Github()
+
+    def run(args, **kwargs):
+        assert args[0] == "gh"
+        result = api(args[1:])
+        return subprocess.CompletedProcess(
+            args, 0, "" if result is None else json.dumps(result), ""
+        )
+
+    monkeypatch.setattr(cycle.subprocess, "run", run)
+    return api
+
+
+@pytest.mark.parametrize("status", [404, 403, 429, 500])
+def test_permission_lookup_only_ignores_not_found(monkeypatch, status):
+    api = Github()
+    api.comments.append(api.comment(12, "Please change this.", "outsider"))
+
+    def run(args, **kwargs):
+        if args[2] == "repos/o/r/collaborators/outsider/permission":
+            raise subprocess.CalledProcessError(
+                1, args, stderr=f"gh: Permission lookup failed (HTTP {status})"
+            )
+        return subprocess.CompletedProcess(args, 0, json.dumps(api(args[1:])), "")
+
+    monkeypatch.setattr(cycle.subprocess, "run", run)
+    if status == 404:
+        state = cycle.snapshot("o/r", 7)
+        assert "comment:12" not in {item["key"] for item in state["feedback"]}
+        cycle.validate(state, handoff(state))
+    else:
+        with pytest.raises(cycle.GitHubError, match=f"Permission lookup failed.*{status}"):
+            cycle.snapshot("o/r", 7)
+
+
+def test_unknown_dispositions_cannot_be_carried_into_a_new_snapshot():
+    state = cycle.snapshot("o/r", 7, Github())
+    result = handoff(state)
+    result["review_cycle"]["dispositions"].append(
+        {"key": "comment:deleted", "status": "addressed", "reason": "Old finding."}
+    )
+    with pytest.raises(RuntimeError, match="unknown feedback: comment:deleted"):
+        cycle.validate(state, result)
+
+
+@pytest.mark.parametrize("missing", ["ocr_summary", "polly_review", "both"])
+def test_cli_requests_force_review_when_evidence_is_missing(
+    github_cli, monkeypatch, capsys, missing
+):
+    if missing == "ocr_summary":
+        github_cli.comments.pop(1)
+        expected = {"open-code-review.yml"}
+    elif missing == "polly_review":
+        github_cli.comments[0]["body"] = "<!-- polly-skipped-sha: " + "a" * 40 + " -->"
+        expected = {"polly-review.yml"}
+    else:
+        github_cli.pull["head"]["sha"] = "b" * 40
+        expected = set(cycle.REVIEWERS.values())
+    monkeypatch.setattr(
+        sys, "argv", ["review_cycle.py", "request", "--repository", "o/r", "--pr-number", "7"]
+    )
+    assert cycle.main() == 0
+    assert json.loads(capsys.readouterr().out)["head_sha"] == github_cli.pull["head"]["sha"]
+    dispatches = [args for args in github_cli.calls if "POST" in args]
+    assert {args[3].split("/")[-2] for args in dispatches} == expected
+    assert all(
+        args[-6:] == ["-f", "ref=main", "-f", "inputs[pr]=7", "-f", "inputs[force]=true"]
+        for args in dispatches
+    )
+
+
+def test_cli_check_returns_failure_for_stale_handoff(github_cli, monkeypatch, tmp_path, capsys):
+    first = cycle.snapshot("o/r", 7)
+    path = tmp_path / "handoff.json"
+    path.write_text(json.dumps(handoff(first)))
+    github_cli.inline[0]["body"] += " Updated finding."
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "review_cycle.py",
+            "check",
+            "--repository",
+            "o/r",
+            "--pr-number",
+            "7",
+            "--handoff",
+            str(path),
+        ],
+    )
+    assert cycle.main() == 1
+    assert "receipt is stale or absent" in capsys.readouterr().out
+
+
+def test_cli_preserves_github_error_details(monkeypatch, capsys):
+    def run(args, **kwargs):
+        raise subprocess.CalledProcessError(
+            1, args, stderr="gh: API rate limit exceeded (HTTP 403)"
+        )
+
+    monkeypatch.setattr(cycle.subprocess, "run", run)
+    monkeypatch.setattr(
+        sys, "argv", ["review_cycle.py", "snapshot", "--repository", "o/r", "--pr-number", "7"]
+    )
+    assert cycle.main() == 1
+    assert "API rate limit exceeded (HTTP 403)" in capsys.readouterr().out

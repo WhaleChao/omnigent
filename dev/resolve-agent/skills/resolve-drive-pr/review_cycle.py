@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import subprocess
 from pathlib import Path
 from urllib.parse import urlencode
@@ -21,8 +22,21 @@ RESOLVE_BOT = "omni-resolve-agent[bot]"
 PERMISSIONS = {"admin", "maintain", "write", "push"}
 
 
+class GitHubError(RuntimeError):
+    def __init__(self, error: subprocess.CalledProcessError):
+        detail = (error.stderr or "").strip() or str(error)
+        status = re.search(r"\(HTTP (\d{3})\)", detail)
+        self.status = int(status[1]) if status else None
+        super().__init__(detail)
+
+
 def gh_json(args: list[str]) -> object:
-    result = subprocess.run(["gh", *args], check=True, text=True, capture_output=True, timeout=120)
+    try:
+        result = subprocess.run(
+            ["gh", *args], check=True, text=True, capture_output=True, timeout=120
+        )
+    except subprocess.CalledProcessError as exc:
+        raise GitHubError(exc) from exc
     return json.loads(result.stdout) if result.stdout.strip() else None
 
 
@@ -105,7 +119,14 @@ def snapshot(repository: str, number: int, request=gh_json):
         if not login or login == RESOLVE_BOT or login.endswith("[bot]"):
             return False
         if login not in permissions:
-            permission = request(["api", f"repos/{repository}/collaborators/{login}/permission"])
+            try:
+                permission = request(
+                    ["api", f"repos/{repository}/collaborators/{login}/permission"]
+                )
+            except GitHubError as exc:
+                if exc.status != 404:
+                    raise
+                permission = {}
             permissions[login] = permission.get("permission") in PERMISSIONS
         return permissions[login]
 
@@ -196,6 +217,11 @@ def validate(state, handoff):
     by_key = {item["key"]: item for item in decisions}
     if len(by_key) != len(decisions):
         raise RuntimeError("Duplicate review disposition")
+    unknown = set(by_key) - {item["key"] for item in state["feedback"]}
+    if unknown:
+        raise RuntimeError(
+            "Dispositions reference unknown feedback: " + ", ".join(sorted(unknown))
+        )
     for item in state["feedback"]:
         decision = by_key.get(item["key"], {})
         if (
