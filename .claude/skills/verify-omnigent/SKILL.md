@@ -106,7 +106,6 @@ environment's socket relay only works around long paths on Linux.
 
 ## Keeping the map honest
 
-`tests/dev/test_verify_omnigent_feature_map.py` fails when a referenced test is
-renamed or removed, a feature file breaks the entry contract, or a native
-harness has no matrix row. When a reviewer says a change missed a surface, add
-that surface to the feature file in the same change.
+When a reviewer says a change missed a surface, add that surface to the feature
+file in the same change. The checks and the weekly upkeep job are described in
+[Keeping the map current](features/README.md#keeping-the-map-current).

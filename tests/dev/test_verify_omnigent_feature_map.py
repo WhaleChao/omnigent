@@ -3,7 +3,9 @@
 The map (``.claude/skills/verify-omnigent/features/``) points at tests instead of
 copying selectors, so these checks turn its most common drift into a failure: a
 renamed or deleted test, a feature file missing from the index, a file that
-breaks the entry contract, or a native harness added without a matrix row.
+breaks the entry contract, a native harness added without a matrix row, or a UI
+test area or CLI command that is neither mapped nor on the index's "Not yet
+mapped" checklist.
 """
 
 from __future__ import annotations
@@ -24,15 +26,26 @@ _SECTIONS = [
     "Gotchas",
 ]
 _TEST_REF = re.compile(r"\b(tests/[\w/.-]+\.py)(?:::(\w+))?")
+_UI_LANES = ("e2e_ui", "browser_ui")
+_UI_AREA_REF = re.compile(r"\btests/(e2e_ui|browser_ui)/(\w+)/")
+_CLI_REF = re.compile(r"`omnigent ([a-z][\w-]*)")
 
 
 def _feature_files() -> list[Path]:
     return sorted(p for p in _FEATURES.glob("*.md") if p.name != "README.md")
 
 
-def test_index_links_every_feature_file() -> None:
+def _index_section(title: str) -> str:
     index = (_FEATURES / "README.md").read_text()
-    features = index.split("\n## Features\n", 1)[1]
+    return index.split(f"\n## {title}\n", 1)[1].split("\n## ", 1)[0]
+
+
+def _feature_text() -> str:
+    return "\n".join(p.read_text() for p in _feature_files())
+
+
+def test_index_links_every_feature_file() -> None:
+    features = _index_section("Features")
     linked = set(re.findall(r"\]\(\./([\w-]+\.md)\)", features))
     present = {p.name for p in _feature_files()}
     assert linked == present, (
@@ -95,3 +108,45 @@ def test_native_harness_matrix_lists_every_harness() -> None:
 def test_verify_env_helper_is_executable() -> None:
     helper = _SKILL / "scripts" / "verify-env"
     assert os.access(helper, os.X_OK), f"{helper} must be executable"
+
+
+def _ui_test_areas() -> set[tuple[str, str]]:
+    areas = set()
+    for lane in _UI_LANES:
+        for area in (_REPO_ROOT / "tests" / lane).iterdir():
+            if area.is_dir() and any(area.rglob("test_*.py")):
+                areas.add((lane, area.name))
+    return areas
+
+
+def test_every_ui_test_area_is_mapped_or_listed() -> None:
+    areas = _ui_test_areas()
+    assert areas, "expected UI test areas under tests/e2e_ui and tests/browser_ui"
+    mapped = set(_UI_AREA_REF.findall(_feature_text()))
+    listed = set(_UI_AREA_REF.findall(_index_section("Not yet mapped")))
+    missing = sorted(f"tests/{lane}/{area}/" for lane, area in areas - mapped - listed)
+    assert not missing, (
+        f"UI test areas with no feature file: {missing}. Map them, or list them under "
+        "'Not yet mapped' in features/README.md"
+    )
+    stale = sorted(f"tests/{lane}/{area}/" for lane, area in listed - areas)
+    assert not stale, f"'Not yet mapped' lists UI test areas that no longer exist: {stale}"
+
+
+def test_every_cli_command_is_mapped_or_listed() -> None:
+    import click
+
+    from omnigent.cli import cli
+
+    ctx = click.Context(cli)
+    commands = {name for name in cli.list_commands(ctx) if not cli.get_command(ctx, name).hidden}
+    assert commands, "expected visible top-level omnigent commands"
+    mapped = set(_CLI_REF.findall(_feature_text()))
+    listed = set(_CLI_REF.findall(_index_section("Not yet mapped")))
+    missing = sorted(commands - mapped - listed)
+    assert not missing, (
+        f"CLI commands with no feature file: {missing}. Map them, or list them under "
+        "'Not yet mapped' in features/README.md"
+    )
+    stale = sorted(listed - commands)
+    assert not stale, f"'Not yet mapped' lists CLI commands that no longer exist: {stale}"

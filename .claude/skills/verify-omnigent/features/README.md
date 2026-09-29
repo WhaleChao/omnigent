@@ -65,9 +65,8 @@ user-visible behavior. It then uses exactly these four H2 sections in order:
 4. `Gotchas` lists look-alike surfaces, per-harness differences, and traps that
    waste or invalidate a run.
 
-`tests/dev/test_verify_omnigent_feature_map.py` checks this contract, that every
-referenced test still exists, and that the native harness matrix lists every
-harness in the repository.
+`tests/dev/test_verify_omnigent_feature_map.py` checks this contract; see
+[Keeping the map current](#keeping-the-map-current) for everything it enforces.
 
 ## Features
 
@@ -82,3 +81,65 @@ harness in the repository.
   `omnigent login`, host daemon credentials, and Databricks auth modes.
 - [Sessions](./sessions.md) covers the sidebar, fork, archive, reconnect,
   and resume.
+
+## Not yet mapped
+
+These user-facing areas have no feature file yet, so this list is the checklist
+of what to map next. An area that is only partly mapped is listed too. When you
+map an area, remove it here in the same change.
+
+**Web and apps** (UI test areas):
+
+- Chat transcript, errors, and MCP status: `tests/e2e_ui/chat/` (only the
+  composer and terminal journeys are mapped)
+- Approvals, permission cards, and the inbox: `tests/e2e_ui/approvals/` (only
+  native edit-tool approvals are mapped)
+- Sub-agents and the agent info popover: `tests/e2e_ui/agents/`
+- Files and the workspace browser: `tests/e2e_ui/files/`, `tests/browser_ui/files/`
+- Comments: `tests/e2e_ui/comments/`
+- Sharing and session permissions: `tests/e2e_ui/collaboration/`
+- GitHub integration: `tests/e2e_ui/github/`
+- Scheduled tasks: `tests/e2e_ui/scheduled/`
+- In-app browser: `tests/e2e_ui/browser/`
+- Desktop app: `tests/e2e_ui/desktop/`
+- Web sign-in: `tests/e2e_ui/auth/`
+- Branding and base-path deploys: `tests/e2e_ui/branding/`, `tests/e2e_ui/base_path/`
+- Hotkeys: `tests/e2e_ui/hotkeys/`
+- Message rendering: `tests/e2e_ui/messages/` (only per-harness render parity
+  is mapped)
+- Mobile layout: `tests/e2e_ui/mobile/` (only composer labels and terminal
+  touch scroll are mapped)
+- Visual snapshots: `tests/e2e_ui/visual/`
+
+**CLI commands:**
+
+- Setup and diagnostics: `omnigent setup`, `omnigent config`, `omnigent doctor`,
+  `omnigent diagnose`, `omnigent debug`, `omnigent usage`
+- Install lifecycle: `omnigent upgrade`, `omnigent update`, `omnigent uninstall`
+- Running agents and servers: `omnigent run`, `omnigent start`, `omnigent stop`,
+  `omnigent server`, `omnigent attach`, `omnigent resume`, `omnigent session`,
+  `omnigent import`
+- Bundled agents and the Copilot harness: `omnigent polly`, `omnigent debby`,
+  `omnigent copilot`
+- Integrations, extensions, and remote sandboxes: `omnigent integration`,
+  `omnigent extensions`, `omnigent sandbox`
+
+**No UI test lane yet:** Slack, the iOS and Android apps, policies and cost
+budgets, MCP servers, sandbox providers, and smart routing.
+
+## Keeping the map current
+
+- **Every PR, enforced:** `tests/dev/test_verify_omnigent_feature_map.py` fails
+  when a referenced test is renamed or removed, a feature file breaks the entry
+  contract, a native harness has no matrix row, or a UI test area or CLI command
+  is neither mapped nor listed under [Not yet mapped](#not-yet-mapped). It runs
+  in CI and in the E2E UI workflow, so UI-only PRs are checked too.
+- **Every PR, advisory:** when a PR changes user-facing code, the Polly review
+  adds a non-blocking note if the change adds or removes an entry point that the
+  matching feature file does not reflect.
+- **Weekly:** Otto's feature-map upkeep job reads each feature file against the
+  source, runs its referenced tests through `verify-env`, and opens at most one
+  PR of proven corrections. It never edits product code; a real product
+  regression it finds is reported, not documented away.
+- **After review:** when a reviewer says a change missed a surface, add that
+  surface to the feature file in the same change.
