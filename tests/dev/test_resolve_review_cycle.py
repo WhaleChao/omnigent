@@ -589,3 +589,34 @@ def test_cli_rejects_invalid_pull_response_with_context(monkeypatch, capsys, std
     )
     assert cycle.main() == 1
     assert "Expected a JSON object from repos/o/r/pulls/7" in capsys.readouterr().out
+
+
+def test_ocr_accepts_captured_nonsticky_summary():
+    api = Github()
+    # Public bot payload; fixture retains only fields consumed by the helper.
+    captured = json.loads((Path(__file__).parent / "fixtures/ocr_summary.json").read_text())
+    api.comments[1] = captured
+    api.artifacts[0]["workflow_run"]["id"] = 36565789828
+
+    def request(args):
+        if args[1] == "repos/o/r/actions/runs/36565789828":
+            return copy.deepcopy(api.run)
+        return api(args)
+
+    state = cycle.snapshot("o/r", 7, request)
+    assert state["completed"]["ocr"] is True
+    assert (
+        next(item for item in state["feedback"] if item["key"] == "comment:5890039813")["body"]
+        == captured["body"].strip()
+    )
+
+
+def test_cli_check_requires_handoff_before_network_access(github_cli, monkeypatch, capsys):
+    monkeypatch.setattr(
+        sys, "argv", ["review_cycle.py", "check", "--repository", "o/r", "--pr-number", "7"]
+    )
+    with pytest.raises(SystemExit) as exc:
+        cycle.main()
+    assert exc.value.code == 2
+    assert "check requires --handoff" in capsys.readouterr().err
+    assert github_cli.calls == []

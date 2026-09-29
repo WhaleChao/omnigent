@@ -3,7 +3,7 @@
 Run **both Polly AI Review (`/review`) and Open Code Review (`/ocr`)** on the
 PR you are driving. Neither reviewer automatically reruns on every push. Their
 slash-command handlers ignore bot comments, so Resolve uses the equivalent
-`workflow_dispatch` entry points with its App token (`actions: write`). Use
+`workflow_dispatch` entry points with its App token (Actions: read and write, for run/artifact reads and dispatch). Use
 `review_cycle.py request` below as the single dispatch path; it forces missing
 reviews to rerun even when skip markers or incomplete publication evidence remain.
 

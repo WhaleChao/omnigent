@@ -197,6 +197,7 @@ def test_workflow_inserts_computed_summary_before_secret_scan_and_publication(
         receipt["if"]
         == "steps.publish.outcome == 'success' && github.event_name != 'pull_request'"
     )
+    assert receipt["with"]["overwrite"] is True
     assert receipt["with"]["name"] == (
         "polly-completed-${{ steps.pr.outputs.pr_number }}-${{ steps.ctx.outputs.head_sha }}"
     )

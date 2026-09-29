@@ -841,6 +841,7 @@ jobs:
         with:
           name: polly-completed-${{ steps.pr.outputs.pr_number }}-${{ steps.ctx.outputs.head_sha }}
           path: /tmp/polly-completed-sha.txt
+          overwrite: true
           retention-days: 90
           if-no-files-found: error
 

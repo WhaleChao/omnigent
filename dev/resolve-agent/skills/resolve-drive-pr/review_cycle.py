@@ -281,20 +281,18 @@ def main():
     parser.add_argument("--pr-number", type=int, required=True)
     parser.add_argument("--handoff", type=Path)
     args = parser.parse_args()
+    if args.command == "check" and not args.handoff:
+        parser.error("check requires --handoff")
     try:
         state = snapshot(args.repository, args.pr_number)
         if args.command == "request":
             request_reviews(args.repository, args.pr_number, state)
         if args.command == "check":
-            if not args.handoff:
-                raise RuntimeError("check requires --handoff")
             validate(state, json.loads(args.handoff.read_text()))
         print(json.dumps(state, indent=2))
     except (
         OSError,
         ValueError,
-        KeyError,
-        TypeError,
         RuntimeError,
         subprocess.CalledProcessError,
         subprocess.TimeoutExpired,
