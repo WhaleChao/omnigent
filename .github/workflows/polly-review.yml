@@ -482,13 +482,13 @@ jobs:
           )
           feature_map_rule = """
           **Feature map** — this PR changes user-facing code. Read
-          `.claude/skills/verify-omnigent/features/` from the `main` checkout: each
+          `feature-map/` from the `main` checkout: each
           file lists every user entry point for one feature. If the diff adds,
           removes, or renames an entry point (a button, menu item, route, dialog,
           CLI command or flag, or a per-harness path) in a feature a file covers,
           and that file does not reflect the change, add a **Non-blocking note**
           naming the feature file and the entry point to update. Never blocking.
-          Skip areas listed under "Not yet mapped" in `features/README.md`.
+          Skip areas listed under "Not yet mapped" in `feature-map/README.md`.
           """ if touches_entry_points else ""
 
           prompt = f"""Review this pull request and provide structured feedback.

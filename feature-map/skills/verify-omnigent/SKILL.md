@@ -12,12 +12,12 @@ not to reason about it from code. It has two parts:
   `python -m dev.repro_env`: a server, runner, and mock model server on private
   ports, with their own config, data, Claude, and Codex directories. It never
   touches `~/.omnigent`, a running host daemon, or another developer server.
-- **A feature map.** [`features/`](features/README.md) lists each user-facing
+- **A feature map.** [feature map](../../README.md) lists each user-facing
   feature's entry points, the tests that drive them, and the traps. A fix is
   verified only when every entry point listed for its feature has proof.
 
 Run all commands from the repository root. Put `scripts/` on your path or call
-`.claude/skills/verify-omnigent/scripts/verify-env` directly.
+`feature-map/skills/verify-omnigent/scripts/verify-env` directly.
 
 ## Launch
 
@@ -56,7 +56,7 @@ instance runs old code: stop it and start a new one.
 
 ## Drive
 
-1. Open the matching file in [`features/`](features/README.md) and list every
+1. Open the matching file in [feature map](../../README.md) and list every
    entry point for the behavior in question.
 2. For each entry point, run the named test through the instance, recording on:
 
@@ -82,7 +82,7 @@ Everything under `$VERIFY_EVIDENCE` is the proof, one directory per feature.
 Instance logs, the database, and the mock model's recorded requests stay in
 `$VERIFY_ENV`. For each claim, record the feature file, the entry point ID, the
 command, and the resulting artifact. The proof standards are in the
-[feature map README](features/README.md#proof-and-coverage). Mock runs prove
+[feature map README](../../README.md#proof-and-coverage). Mock runs prove
 Omnigent's integration with Claude and Codex, not a live vendor model.
 
 ## Cleanup
@@ -108,4 +108,4 @@ environment's socket relay only works around long paths on Linux.
 
 When a reviewer says a change missed a surface, add that surface to the feature
 file in the same change. The checks and the weekly upkeep job are described in
-[Keeping the map current](features/README.md#keeping-the-map-current).
+[Keeping the map current](../../README.md#keeping-the-map-current).

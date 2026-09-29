@@ -63,7 +63,7 @@ test commands. Don't leave the user guessing how to confirm the work — tell
 them exactly what to do.
 
 To drive the app yourself and prove a user-facing change on every entry point a
-user can reach, follow `.claude/skills/verify-omnigent/SKILL.md`.
+user can reach, start with `feature-map/README.md`, then read the relevant maps and linked skills.
 
 ## Deprecating features
 

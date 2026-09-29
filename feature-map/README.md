@@ -11,9 +11,24 @@ run. It deliberately omits implementation details such as selectors, test IDs,
 CSS classes, and source paths. Discover those at run time from the code and
 the referenced tests; they change faster than the user journey.
 
+## Skills
+
+Read the relevant skill file directly when its capability is needed:
+
+- [Verify Omnigent](skills/verify-omnigent/SKILL.md): start an isolated test
+  environment, drive user journeys, and capture evidence. Its executable helper
+  is `feature-map/skills/verify-omnigent/scripts/verify-env`.
+
+These skills live here with the map so the whole package can be included or
+excluded in replay. Harnesses do not automatically discover this directory:
+start from this README, then read the linked SKILL.md before using its helper.
+No slash-command registration or symlink is required for agents to read it.
+Feature recipes also link existing repository skills outside this package;
+check that they exist at the checkout revision before using them.
+
 ## Baseline preconditions
 
-- Launch the isolated environment from the [skill](../SKILL.md#launch). It
+- Launch the isolated environment from the [skill](skills/verify-omnigent/SKILL.md#launch). It
   starts a server, runner, and mock model server on private ports with its own
   config, data, Claude, and Codex directories.
 - Run every drive through `verify-env run -- ...` (or, in CI,

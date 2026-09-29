@@ -1,6 +1,6 @@
 """The verify-omnigent feature map stays consistent with the repository.
 
-The map (``.claude/skills/verify-omnigent/features/``) points at tests instead of
+The map (``feature-map/``) points at tests instead of
 copying selectors, so these checks turn its most common drift into a failure: a
 renamed or deleted test, a feature file missing from the index, a file that
 breaks the entry contract, a native harness added without a matrix row, or a UI
@@ -17,8 +17,8 @@ from pathlib import Path
 import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_SKILL = _REPO_ROOT / ".claude" / "skills" / "verify-omnigent"
-_FEATURES = _SKILL / "features"
+_FEATURES = _REPO_ROOT / "feature-map"
+_SKILL = _FEATURES / "skills" / "verify-omnigent"
 _SECTIONS = [
     "Sub-features",
     "How to get to it (user POV)",
@@ -49,7 +49,7 @@ def test_index_links_every_feature_file() -> None:
     linked = set(re.findall(r"\]\(\./([\w-]+\.md)\)", features))
     present = {p.name for p in _feature_files()}
     assert linked == present, (
-        f"features/README.md must link exactly the feature files; "
+        f"feature-map/README.md must link exactly the feature files; "
         f"unlinked: {sorted(present - linked)}, missing: {sorted(linked - present)}"
     )
 
@@ -127,7 +127,7 @@ def test_every_ui_test_area_is_mapped_or_listed() -> None:
     missing = sorted(f"tests/{lane}/{area}/" for lane, area in areas - mapped - listed)
     assert not missing, (
         f"UI test areas with no feature file: {missing}. Map them, or list them under "
-        "'Not yet mapped' in features/README.md"
+        "'Not yet mapped' in feature-map/README.md"
     )
     stale = sorted(f"tests/{lane}/{area}/" for lane, area in listed - areas)
     assert not stale, f"'Not yet mapped' lists UI test areas that no longer exist: {stale}"
@@ -146,7 +146,16 @@ def test_every_cli_command_is_mapped_or_listed() -> None:
     missing = sorted(commands - mapped - listed)
     assert not missing, (
         f"CLI commands with no feature file: {missing}. Map them, or list them under "
-        "'Not yet mapped' in features/README.md"
+        "'Not yet mapped' in feature-map/README.md"
     )
     stale = sorted(listed - commands)
     assert not stale, f"'Not yet mapped' lists CLI commands that no longer exist: {stale}"
+
+
+def test_package_document_links_resolve() -> None:
+    for document in _FEATURES.rglob("*.md"):
+        for target in re.findall(r"\]\(([^)]+)\)", document.read_text()):
+            path = target.split("#", 1)[0]
+            if not path or "://" in path:
+                continue
+            assert (document.parent / path).exists(), f"{document}: broken link {target}"

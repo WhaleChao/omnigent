@@ -45,7 +45,7 @@ Preconditions: the verification instance runs a header-mode server with no
 sign-in and no host daemon, so most of this feature cannot be driven there.
 Never run these commands against the real `~/.omnigent` or `~/.databrickscfg`.
 
-- **Isolated CLI loop:** use [cli-setup-verify](../../cli-setup-verify/SKILL.md),
+- **Isolated CLI loop:** use [cli-setup-verify](../.claude/skills/cli-setup-verify/SKILL.md),
   which drives the real `omnigent` binary in a PTY with a throwaway config and
   data directory, for sign-in prompts and host commands.
 - **`proxy-env`:**
