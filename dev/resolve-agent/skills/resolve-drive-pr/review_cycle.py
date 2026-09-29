@@ -65,7 +65,7 @@ def pages(endpoint, request, field=None):
 def digest(value):
     return hashlib.sha256(
         json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()[:16]
+    ).hexdigest()
 
 
 def actor(item):
