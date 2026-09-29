@@ -53,6 +53,8 @@ def pages(endpoint, request, field=None):
     for page in range(1, 10001):
         batch = request(["api", f"{endpoint}{separator}per_page=100&page={page}"])
         if field:
+            if not isinstance(batch, dict) or field not in batch:
+                raise RuntimeError(f"Invalid paginated response for {endpoint}: missing {field}")
             batch = batch[field]
         if not isinstance(batch, list):
             raise RuntimeError(f"Invalid paginated response for {endpoint}")

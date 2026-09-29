@@ -620,3 +620,19 @@ def test_cli_check_requires_handoff_before_network_access(github_cli, monkeypatc
     assert exc.value.code == 2
     assert "check requires --handoff" in capsys.readouterr().err
     assert github_cli.calls == []
+
+
+@pytest.mark.parametrize("response", [None, [], {}, {"artifacts": None}, {"artifacts": {}}])
+def test_invalid_paginated_artifact_response_fails_cleanly(monkeypatch, capsys, response):
+    api = Github()
+
+    def run(args, **kwargs):
+        result = response if "/actions/artifacts?" in args[2] else api(args[1:])
+        return subprocess.CompletedProcess(args, 0, json.dumps(result), "")
+
+    monkeypatch.setattr(cycle.subprocess, "run", run)
+    monkeypatch.setattr(
+        sys, "argv", ["review_cycle.py", "snapshot", "--repository", "o/r", "--pr-number", "7"]
+    )
+    assert cycle.main() == 1
+    assert "Invalid paginated response for repos/o/r/actions/artifacts?" in capsys.readouterr().out

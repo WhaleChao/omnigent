@@ -184,8 +184,8 @@ is the review gate after the fact.
    update, the per-facet fail→pass proof, the compact PR-facing `review_body` in
    review mode, the PR URL (opened or reviewed, or empty until the workflow-owned
    publisher opens it), and the publication state
-   (`ci_status`, `polly_review`, `ui_preview`, `validation_prompt`,
-   `maintainer_review`).
+   (`ci_status`, `polly_review`, `ocr_review`, `review_cycle`, `ui_preview`,
+   `validation_prompt`, `maintainer_review`).
 
 It does **not** merge. [AGENTS.md](AGENTS.md) contains the role, mode selection,
 essential constraints, and completion contract. Detailed procedures live in
