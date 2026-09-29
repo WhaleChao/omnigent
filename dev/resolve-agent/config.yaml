@@ -11,8 +11,8 @@
 # drives that PR to a landable state (Step 4): labels every PR `ui-preview` (so a
 # live app is deployed to validate against, not just for frontend fixes) and posts
 # connect instructions, iterates on failing CI and on the
-# Polly automated review (fixing critical findings and re-triggering with a
-# `/review` comment) until CI is green and no critical findings remain, writes a
+# Polly and Open Code Review (triaging all findings and dispatching both again
+# after every push) until CI is green and current-head reviews are settled, writes a
 # paste-to-an-agent live-validation prompt into the PR, and tags the issue's
 # assignee to review.
 #
@@ -86,16 +86,15 @@ agent_session_sharing: public
 async: true
 cancellable: true
 
-# Independent review runs through Polly after publication; the implementation
-# agent does not need child-session creation tools.
+# Polly and OCR review published PRs; Resolve needs no child-session tools.
 spawn: false
 
 # Declaring os_env registers sys_os_read / sys_os_write / sys_os_edit /
 # sys_os_shell. The agent uses the shell for `git` (branch/commit/push), `gh`
 # (find/review an existing fix PR, recover a CI run's artifacts, open the PR,
 # and then land it: `gh pr checks` to poll CI, `gh pr edit --add-label` /
-# `--add-reviewer`, `gh pr comment` to post connect/validation notes and the
-# `/review` re-trigger, `gh issue view` to read the assignee), and to run tests
+# `--add-reviewer`, `gh pr comment` for connect/validation notes, and
+# `gh workflow run` for review dispatch), and to run tests
 # and write the fix + its tests into this checkout; it reads the repro session
 # via sys_session_*. `cwd: .` runs in the caller's
 # working directory — run `omnigent run dev/resolve-agent` from the root of your

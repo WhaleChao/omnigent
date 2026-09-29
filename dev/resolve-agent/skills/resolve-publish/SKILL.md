@@ -218,9 +218,9 @@ Once the set is genuinely green:
    with `pr_url` set and `outcome` at its current best assessment, *before* you
    start Step 4. This is what lets the workflow post the PR link to the Linear
    ticket promptly, rather than waiting the ~hour Step 4 can take. Leave the
-   not-yet-known Step-4 fields empty (`ci_status`, `polly_review`,
-   `maintainer_review`) — you refill them in the final handoff. Emit it as a
-   normal intermediate message (json block last in *that* message), then carry on.
+   not-yet-known Step-4 fields empty (`ci_status`, `polly_review`, `ocr_review`,
+   `maintainer_review`, with `review_cycle: {}`) — refill them in the final
+   handoff. Emit it as a normal intermediate message (json block last in *that* message), then carry on.
    **Before this handoff, do the two outward actions a mid-turn drop would
    otherwise strand:**
    - **Label your PR `ui-preview`** (author path) — `gh pr edit <pr> --add-label
