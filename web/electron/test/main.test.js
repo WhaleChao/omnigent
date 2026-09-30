@@ -630,6 +630,59 @@ describe("Databricks auth mode wiring", () => {
     );
   });
 
+  it("keeps requiring browser sign-in after a cancelled one", async (t) => {
+    const outcomes = [
+      Object.assign(new Error("rejected"), { errorCode: "SESSION_REJECTED" }),
+      Object.assign(new Error("cancelled"), { name: "AbortError" }),
+    ];
+    const h = loadNavigationHarness({
+      serverUrl: workspace,
+      databricksMode: "browser",
+      ensureSession: async (_ses, origin) => {
+        const outcome = outcomes.shift();
+        if (outcome) throw outcome;
+        return origin;
+      },
+    });
+    t.after(h.cleanup);
+    const connect = () => h.api.loadServerUrl(h.win, workspace, undefined, { interactive: true });
+    await assert.rejects(connect(), /rejected/);
+    await assert.rejects(connect(), /cancelled/);
+    await connect();
+    await connect();
+    assert.deepEqual(
+      h.calls.auth.map((call) => call[2].useStoredCredentials),
+      [true, false, false, true],
+    );
+  });
+
+  it("keeps the sign-in wording for a retried server error", async (t) => {
+    const shown = [];
+    for (const retries of [[20], []]) {
+      const h = loadNavigationHarness({
+        serverUrl: workspace,
+        databricksMode: "browser",
+        internalFeatures: true,
+        ensureSession: async () => {
+          throw Object.assign(new Error("HTTP 503"), { status: 503 });
+        },
+      });
+      t.after(h.cleanup);
+      h.api.setReconnectDelaysMs(retries);
+      // oxlint-disable-next-line no-await-in-loop
+      await assert.rejects(h.api.loadServerUrl(h.win, workspace));
+      // oxlint-disable-next-line no-await-in-loop
+      await tick();
+      h.setUrl("about:blank");
+      const params = new URLSearchParams(h.calls.loadFile[0][1].search);
+      shown.push([params.get("error"), params.get("reconnect")]);
+    }
+    assert.deepEqual(shown, [
+      ["Couldn't sign in to Databricks. Retrying automatically…", "1"],
+      ["Couldn't sign in to Databricks. Please try again.", null],
+    ]);
+  });
+
   const offline = () => new TypeError("fetch failed");
   const ipAclBlocked = () => Object.assign(new Error("HTTP 403"), { errorCode: "IP_ACL_BLOCKED" });
   const [cant, couldnt, blocked] = [

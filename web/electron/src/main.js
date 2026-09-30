@@ -822,9 +822,9 @@ function showDatabricksAuthRequired(win, serverUrl, error, { returnUrl } = {}) {
   if (!retrying) cancelReconnect(win);
   let message = "Couldn't sign in to Databricks. Please try again.";
   if (expired) message = "Session expired. Connect to sign in again.";
-  else if (transient) {
+  else if (transient && (error.status == null || error.errorCode === IP_ACL_BLOCKED)) {
     message = unreachableMessage(serverUrl, retrying, error.errorCode === IP_ACL_BLOCKED);
-  }
+  } else if (retrying) message = "Couldn't sign in to Databricks. Retrying automatically…";
   const params = new URLSearchParams({ error: message, url: serverUrl });
   if (windows.get(win)?.ephemeral) params.set("ephemeral", "1");
   if (retrying) params.set("reconnect", "1");
@@ -1625,20 +1625,21 @@ async function loadServerUrl(
       win.webContents.stop();
       try {
         const entered = new URL(serverUrl);
+        // Kept until a browser sign-in succeeds, so a cancelled one doesn't reuse rejected credentials.
+        const browserSignIn = interactive && databricksBrowserSignInRequired.has(entered.origin);
         const resolvedOrigin = await ensureDatabricksSession(
           session.defaultSession,
           entered.origin,
           {
             interactive,
-            useStoredCredentials: !(
-              interactive && databricksBrowserSignInRequired.delete(entered.origin)
-            ),
+            useStoredCredentials: !browserSignIn,
             signal,
             workspaceId: entered.searchParams.get("o") || undefined,
             pickWorkspace: (workspaces) =>
               current() ? pickWorkspaceForBridge(win, workspaces, { signal }) : null,
           },
         );
+        if (browserSignIn) databricksBrowserSignInRequired.delete(entered.origin);
         assertCurrent();
         if (resolvedOrigin !== entered.origin) {
           serverUrl = databricksWorkspaceUiUrl(resolvedOrigin);
@@ -1727,6 +1728,10 @@ function registerNavigationFallbacks(win) {
       if (UNREACHABLE_NET_ERRORS.has(errorCode) && usesBrowserAuth(pinnedOrigin(win))) {
         // DNS/VPN may still be reconnecting right after wake: keep retrying from setup.
         const serverUrl = windows.get(win)?.serverUrl;
+        console.warn("[omnigent] databricks auth: page load failed", {
+          origin: failedOrigin,
+          errorCode,
+        });
         retrying = Boolean(serverUrl) && scheduleReconnect(win, serverUrl, validatedURL);
         error = unreachableMessage(validatedURL, retrying);
       }

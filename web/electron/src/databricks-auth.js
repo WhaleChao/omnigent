@@ -52,11 +52,13 @@ function cookieMatchesOrigin(cookie, origin) {
   );
 }
 
-// The workspace rejected a freshly minted session / its IP access list refused session-create.
+// The workspace rejected a freshly minted session: the stored credentials need a browser sign-in.
 const SESSION_REJECTED = "SESSION_REJECTED";
+// The workspace IP access list refused session-create (e.g. off the VPN): retried.
 const IP_ACL_BLOCKED = "IP_ACL_BLOCKED";
 const sessionRejected = (message) =>
   Object.assign(new Error(message), { errorCode: SESSION_REJECTED });
+// Must match the transport errors thrown by databricks-session.js.
 const SESSION_TRANSPORT_ERRORS = new Set([
   "Databricks session creation timed out",
   "Databricks session response aborted",
