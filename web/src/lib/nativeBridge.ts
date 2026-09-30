@@ -341,6 +341,13 @@ export interface ServerPickerInfo {
   /** Origin this window is connected to, e.g. `"http://localhost:8000"`. */
   currentOrigin: string;
   /**
+   * The server URL the user picked when sign-in moved to `currentOrigin`'s host
+   * (it may carry a workspace `?o=` selector), else null. Absent on older shells.
+   */
+  currentServer?: string | null;
+  /** Recent URL → the server URL the user picked for it, for display. Absent on older shells. */
+  recentLabels?: Record<string, string>;
+  /**
    * Server URLs supplied through macOS Managed Preferences. Optional because a
    * newer server-served SPA can run inside a desktop shell that predates MDM.
    */

@@ -44,6 +44,7 @@ function loadNavigationHarness({
   realBrowserRegistry = false,
   arcaPath = null,
   arcaResult = { ok: true, alreadyRunning: false },
+  managedServers = [],
 } = {}) {
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), "omnigent-navigation-test-"));
   if (savedServerUrl) {
@@ -229,6 +230,10 @@ function loadNavigationHarness({
         return {};
       },
       PRE_MANIFEST_BASELINE: {},
+    },
+    "./managed_preferences": {
+      ...require("../src/managed_preferences"),
+      getManagedServerUrls: () => managedServers,
     },
     "./deepLink": {
       parseOmnigentDeepLink: () => null,
@@ -674,6 +679,99 @@ describe("Databricks auth mode wiring", () => {
     assert.equal(h.calls.auth[1][2].interactive, false);
   });
 
+  describe("server labels", () => {
+    const picked = "https://accounts.cloud.databricks.com/omnigent?o=123";
+    const pickedListed = "https://accounts.cloud.databricks.com/?o=123";
+    const workspaceOrigin = new URL(workspace).origin;
+    const setupEvent = (h) => ({
+      sender: h.webContents,
+      senderFrame: { url: `file://${h.api.SETUP_PAGE}` },
+    });
+    const pageEvent = (h) => ({ sender: h.webContents, senderFrame: { url: workspace } });
+    const saved = (h) => JSON.parse(fs.readFileSync(h.settingsPath, "utf8"));
+    // main.js runs in its own VM context: compare its values structurally.
+    const plain = (value) => JSON.parse(JSON.stringify(value));
+
+    // Sign-in at an account-level URL lands on the workspace's own host.
+    async function joinThroughAccount(t, options = {}) {
+      const h = loadNavigationHarness({
+        serverUrl: picked,
+        databricksMode: "browser",
+        ensureSession: async () => workspaceOrigin,
+        ...options,
+      });
+      t.after(h.cleanup);
+      h.api.registerIpc();
+      await h.ipc.get("omnigent:set-server-url")(setupEvent(h), picked);
+      h.setUrl(workspace);
+      return h;
+    }
+
+    it("keeps the workspace URL for sign-in, and shows the pick", async (t) => {
+      const h = await joinThroughAccount(t);
+      assert.equal(saved(h).server_url, workspace);
+      assert.deepEqual(saved(h).recent_servers, [workspace]);
+      assert.deepEqual(saved(h).server_labels, { [workspaceOrigin]: picked });
+      assert.deepEqual(plain(await h.ipc.get("omnigent:get-recent-servers")(setupEvent(h))), [
+        pickedListed,
+      ]);
+      assert.equal(await h.ipc.get("omnigent:get-server-url")(setupEvent(h)), picked);
+      const picker = plain(await h.ipc.get("omnigent:get-server-picker")(pageEvent(h)));
+      assert.equal(picker.currentOrigin, workspaceOrigin);
+      assert.equal(picker.currentServer, picked);
+      assert.deepEqual(picker.recentServers, [workspace]);
+      assert.deepEqual(picker.recentLabels, { [workspace]: picked });
+    });
+
+    it("folds the workspace into the organization's server on the setup page", async (t) => {
+      const h = await joinThroughAccount(t, { managedServers: [picked] });
+      assert.deepEqual(plain(await h.ipc.get("omnigent:get-recent-servers")(setupEvent(h))), []);
+    });
+
+    it("keeps the workspace listed next to another workspace on the same account host", async (t) => {
+      const h = await joinThroughAccount(t, {
+        managedServers: ["https://accounts.cloud.databricks.com/?o=456"],
+      });
+      assert.deepEqual(plain(await h.ipc.get("omnigent:get-recent-servers")(setupEvent(h))), [
+        pickedListed,
+      ]);
+    });
+
+    it("forgets the workspace through the pick it's listed as", async (t) => {
+      const h = await joinThroughAccount(t);
+      const remaining = await h.ipc.get("omnigent:forget-recent-server")(
+        setupEvent(h),
+        pickedListed,
+      );
+      assert.deepEqual(plain(remaining), []);
+      assert.deepEqual(saved(h).recent_servers, []);
+      assert.deepEqual(saved(h).server_labels, {});
+    });
+
+    it("drops the label when the workspace host is picked directly", async (t) => {
+      const h = await joinThroughAccount(t);
+      await h.ipc.get("omnigent:set-server-url")(setupEvent(h), workspace);
+      assert.deepEqual(saved(h).server_labels, {});
+      assert.deepEqual(plain(await h.ipc.get("omnigent:get-recent-servers")(setupEvent(h))), [
+        `${workspaceOrigin}/`,
+      ]);
+    });
+
+    it("records no label when the connect fails", async (t) => {
+      const h = loadNavigationHarness({
+        serverUrl: picked,
+        databricksMode: "browser",
+        ensureSession: async () => {
+          throw new Error("sign-in failed");
+        },
+      });
+      t.after(h.cleanup);
+      h.api.registerIpc();
+      await assert.rejects(h.ipc.get("omnigent:set-server-url")(setupEvent(h), picked));
+      assert.equal(saved(h).server_labels, undefined);
+    });
+  });
+
   it("fetches the selected workspace's manifest after an account-first login", async (t) => {
     const account = "https://accounts.cloud.databricks.com/omnigent";
     const h = loadNavigationHarness({
@@ -985,10 +1083,29 @@ describe("managed server preference wiring", () => {
   });
 
   it("returns managed choices in the connected-server picker", () => {
-    assert.match(
-      liveCode,
-      /ipcMain\.handle\("omnigent:get-server-picker"[\s\S]{0,500}managedServers[\s\S]{0,100}recentServers:\s*recents/,
-    );
+    const managed = "https://managed.example.com/";
+    const h = loadNavigationHarness({
+      serverUrl: "https://host.example/",
+      managedServers: [managed],
+    });
+    try {
+      h.api.registerIpc();
+      fs.writeFileSync(
+        h.settingsPath,
+        JSON.stringify({ recent_servers: ["https://host.example/", `${managed}omnigent`] }),
+      );
+      const picker = h.ipc.get("omnigent:get-server-picker")({
+        sender: h.webContents,
+        senderFrame: { url: "https://host.example/" },
+      });
+      // JSON round trip: the handler's arrays come from the harness's VM realm.
+      const plain = JSON.parse(JSON.stringify(picker));
+      assert.deepEqual(plain.managedServers, [managed]);
+      // A recent the organization already provides is listed once, as managed.
+      assert.deepEqual(plain.recentServers, ["https://host.example/"]);
+    } finally {
+      h.cleanup();
+    }
   });
 
   it("allows switching only to a recent or currently managed target", () => {
@@ -1382,10 +1499,28 @@ describe("recent-server startup wiring (src/main.js)", () => {
   });
 
   it("normalizes persisted targets and excludes managed origins from setup recents", () => {
-    assert.match(
-      liveCode,
-      /ipcMain\.handle\("omnigent:get-recent-servers"[\s\S]{0,400}excludingManagedServers\(\s*normalizeRecentServers\(loadSettings\(\)\.recent_servers\),\s*managed/,
-    );
+    const h = loadNavigationHarness({ managedServers: ["https://managed.example.com/"] });
+    try {
+      h.api.registerIpc();
+      fs.writeFileSync(
+        h.settingsPath,
+        JSON.stringify({
+          recent_servers: [
+            "https://host.example/omnigent",
+            "https://host.example/",
+            "https://managed.example.com/omnigent",
+          ],
+        }),
+      );
+      const recents = h.ipc.get("omnigent:get-recent-servers")({
+        sender: h.webContents,
+        senderFrame: { url: `file://${h.api.SETUP_PAGE}` },
+      });
+      // JSON round trip: the handler's arrays come from the harness's VM realm.
+      assert.deepEqual(JSON.parse(JSON.stringify(recents)), ["https://host.example/"]);
+    } finally {
+      h.cleanup();
+    }
   });
 
   it("counts MDM presets toward the setup page's returning-user signal", () => {

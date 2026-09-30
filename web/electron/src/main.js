@@ -55,6 +55,7 @@ const {
   PRE_MANIFEST_BASELINE,
 } = require("./url");
 const { parseOmnigentDeepLink, chooseDeepLinkStrategy } = require("./deepLink");
+const { parseServerLabels, serverLabel, withConnectLabel } = require("./server_labels");
 const { registerWorkspaceChromeHide } = require("./workspace-chrome");
 const { registerWorkspaceRootBounce } = require("./workspace-root-bounce");
 const { registerServerAwayWatch, AWAY_BANNER_DELAY_MS } = require("./away_banner");
@@ -1304,6 +1305,29 @@ function rememberRecentServer(settings, url) {
     url,
     ...existing.filter((u) => typeof u === "string" && u !== url),
   ].slice(0, MAX_RECENT_SERVERS);
+}
+
+/**
+ * Recents as the setup page lists them: normalized, a workspace host shown as
+ * the URL the user picked when sign-in moved to it, and without servers the
+ * organization provides. Connecting from the setup page always signs in
+ * afresh, so the picked URL reaches the same workspace.
+ *
+ * @param {Record<string, unknown>} settings Settings object from loadSettings().
+ * @returns {string[]}
+ */
+function setupPageRecents(settings) {
+  const labels = parseServerLabels(settings.server_labels);
+  const managed = managedServerUrls();
+  const managedServers = new Set(normalizeRecentServers(managed));
+  return normalizeRecentServers(
+    normalizeRecentServers(settings.recent_servers).flatMap((url) => {
+      const label = serverLabel(labels, url);
+      if (label === null) return excludingManagedServers([url], managed);
+      // Folded into the organization's server only when it's that same server.
+      return managedServers.has(normalizeRecentServers([label])[0]) ? [] : [label];
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -3004,10 +3028,20 @@ function registerIpc() {
         interactive: true,
         attempt,
       });
-      // Only a server that actually responded earns a recents slot.
+      // Only a server that actually responded earns a recents slot. Sign-in that
+      // moved to another host keeps the pick's name for display.
       if (!ephemeral) {
         const settings = loadSettings();
         rememberRecentServer(settings, resolvedServerUrl);
+        const labels = withConnectLabel(
+          parseServerLabels(settings.server_labels),
+          target,
+          resolvedServerUrl,
+          settings.recent_servers,
+        );
+        if (settings.server_labels !== undefined || Object.keys(labels).length > 0) {
+          settings.server_labels = labels;
+        }
         saveSettings(settings);
       }
       return {};
@@ -3024,7 +3058,12 @@ function registerIpc() {
     if (!isSetupPageSender(event)) {
       throw new Error("get-server-url is only available to the setup page");
     }
-    return loadSettings().server_url ?? null;
+    const settings = loadSettings();
+    return (
+      serverLabel(parseServerLabels(settings.server_labels), settings.server_url) ??
+      settings.server_url ??
+      null
+    );
   });
 
   // Setup page → recently-connected servers, most recent first, for the
@@ -3033,8 +3072,7 @@ function registerIpc() {
     if (!isSetupPageSender(event)) {
       throw new Error("get-recent-servers is only available to the setup page");
     }
-    const managed = managedServerUrls();
-    return excludingManagedServers(normalizeRecentServers(loadSettings().recent_servers), managed);
+    return setupPageRecents(loadSettings());
   });
 
   // Setup page → drop one recent server from settings.json. Returns the
@@ -3044,12 +3082,19 @@ function registerIpc() {
     if (!isSetupPageSender(event)) {
       throw new Error("forget-recent-server is only available to the setup page");
     }
-    const managed = managedServerUrls();
     const settings = loadSettings();
-    const remaining = normalizeRecentServers(settings.recent_servers).filter((u) => u !== url);
+    const labels = parseServerLabels(settings.server_labels);
+    // The page may list a recent as its picked URL (see setupPageRecents).
+    const remaining = normalizeRecentServers(settings.recent_servers).filter(
+      (u) => u !== url && normalizeRecentServers([serverLabel(labels, u) ?? u])[0] !== url,
+    );
     settings.recent_servers = remaining;
+    const listed = new Set(remaining.map(originOf));
+    settings.server_labels = Object.fromEntries(
+      Object.entries(labels).filter(([origin]) => listed.has(origin)),
+    );
     saveSettings(settings);
-    return excludingManagedServers(remaining, managed);
+    return setupPageRecents(settings);
   });
 
   // Setup page → reachability/validity probe for a server the user just added.
@@ -3199,12 +3244,23 @@ function registerIpc() {
     }
     const win = BrowserWindow.fromWebContents(event.sender);
     const managedServers = managedServerUrls();
-    const recents = excludingManagedServers(loadSettings().recent_servers, managedServers);
+    const settings = loadSettings();
+    const recents = excludingManagedServers(settings.recent_servers, managedServers);
+    const labels = parseServerLabels(settings.server_labels);
+    // isPinnedOriginSender guarantees the sender window is tracked.
+    const { origin } = windows.get(win);
     return {
-      // isPinnedOriginSender guarantees the sender window is tracked.
-      currentOrigin: windows.get(win).origin,
+      currentOrigin: origin,
+      // The URL the user picked when sign-in moved to this host, for display.
+      currentServer: serverLabel(labels, origin),
       managedServers,
       recentServers: recents,
+      recentLabels: Object.fromEntries(
+        recents.flatMap((url) => {
+          const label = serverLabel(labels, url);
+          return label === null ? [] : [[url, label]];
+        }),
+      ),
       // The connected server's manifest, forwarded so the SPA branches on the
       // same document the shell did rather than re-fetching it (and so an
       // older shell, which simply omits this field, is detectable as absent —
