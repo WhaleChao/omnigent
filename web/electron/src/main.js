@@ -1323,7 +1323,8 @@ function setupPageRecents(settings) {
   return normalizeRecentServers(
     normalizeRecentServers(settings.recent_servers).flatMap((url) => {
       const label = serverLabel(labels, url);
-      if (label === null) return excludingManagedServers([url], managed);
+      const unmanaged = excludingManagedServers([url], managed);
+      if (label === null || unmanaged.length === 0) return unmanaged;
       // Folded into the organization's server only when it's that same server.
       return managedServers.has(normalizeRecentServers([label])[0]) ? [] : [label];
     }),
@@ -3089,10 +3090,12 @@ function registerIpc() {
       (u) => u !== url && normalizeRecentServers([serverLabel(labels, u) ?? u])[0] !== url,
     );
     settings.recent_servers = remaining;
-    const listed = new Set(remaining.map(originOf));
-    settings.server_labels = Object.fromEntries(
-      Object.entries(labels).filter(([origin]) => listed.has(origin)),
-    );
+    if (settings.server_labels !== undefined) {
+      const listed = new Set(remaining.map(originOf));
+      settings.server_labels = Object.fromEntries(
+        Object.entries(labels).filter(([origin]) => listed.has(origin)),
+      );
+    }
     saveSettings(settings);
     return setupPageRecents(settings);
   });

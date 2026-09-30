@@ -728,6 +728,23 @@ describe("Databricks auth mode wiring", () => {
       assert.deepEqual(plain(await h.ipc.get("omnigent:get-recent-servers")(setupEvent(h))), []);
     });
 
+    it("lists the workspace once when the organization provides the workspace URL itself", async (t) => {
+      const h = await joinThroughAccount(t, { managedServers: [`${workspaceOrigin}/`] });
+      assert.deepEqual(plain(await h.ipc.get("omnigent:get-recent-servers")(setupEvent(h))), []);
+    });
+
+    it("forgets without adding labels to settings that had none", async (t) => {
+      const h = loadNavigationHarness();
+      t.after(h.cleanup);
+      h.api.registerIpc();
+      fs.writeFileSync(
+        h.settingsPath,
+        JSON.stringify({ recent_servers: ["https://a.example.com/", "https://b.example.com/"] }),
+      );
+      await h.ipc.get("omnigent:forget-recent-server")(setupEvent(h), "https://a.example.com/");
+      assert.deepEqual(saved(h), { recent_servers: ["https://b.example.com/"] });
+    });
+
     it("keeps the workspace listed next to another workspace on the same account host", async (t) => {
       const h = await joinThroughAccount(t, {
         managedServers: ["https://accounts.cloud.databricks.com/?o=456"],

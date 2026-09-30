@@ -30,7 +30,8 @@ function parseServerLabels(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   return Object.fromEntries(
     Object.entries(value).filter(
-      ([origin, url]) => originOf(origin) === origin && typeof url === "string",
+      ([origin, url]) =>
+        originOf(origin) === origin && typeof url === "string" && originOf(url) !== null,
     ),
   );
 }

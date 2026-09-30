@@ -17,6 +17,7 @@ describe("server labels", () => {
         [WORKSPACE]: PICKED,
         "https://bad.example.com/path": PICKED, // not a bare origin
         "https://num.example.com": 42,
+        "https://typo.example.com": "not a url", // hand-edited
       }),
       { [WORKSPACE]: PICKED },
     );
